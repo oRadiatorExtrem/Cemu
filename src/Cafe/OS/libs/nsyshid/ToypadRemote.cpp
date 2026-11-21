@@ -366,6 +366,54 @@ namespace nsyshid::ToypadRemote
 		}
 	}
 
+	// ---------------------------------------------------------------- library (<figures>/favorites.txt: one file name per line)
+
+	static std::set<std::string> ReadFavorites()
+	{
+		std::set<std::string> favs;
+		std::ifstream in(s_figuresDir / "favorites.txt");
+		std::string line;
+		while (std::getline(in, line))
+		{
+			if (!line.empty() && line.back() == '\r')
+				line.pop_back();
+			if (!line.empty())
+				favs.insert(line);
+		}
+		return favs;
+	}
+
+	static void WriteFavorites(const std::set<std::string>& favs)
+	{
+		std::ofstream out(s_figuresDir / "favorites.txt", std::ios::trunc);
+		for (const auto& f : favs)
+			out << f << '\n';
+	}
+
+	static bool IsOnPad(const std::string& file)
+	{
+		const auto slots = g_dimensionstoypad.GetSlots();
+		for (uint8 i = 0; i < 7; i++)
+			if (slots[i] && s_slotFile[i] == file)
+				return true;
+		return false;
+	}
+
+	// a figure file was renamed (to = new name) or deleted (to = ""): update favourites and loadouts
+	static void RenameReferences(const std::string& from, const std::string& to)
+	{
+		auto favs = ReadFavorites();
+		if (favs.erase(from) && !to.empty())
+			favs.insert(to);
+		WriteFavorites(favs);
+		auto list = ReadLoadouts();
+		for (auto& l : list)
+			for (auto& f : l.files)
+				if (f == from)
+					f = to;
+		WriteLoadouts(list);
+	}
+
 	static std::string ApplyLoadout(const Loadout& l)
 	{
 		// take off everything that is not part of the loadout, then put each figure on its spot
@@ -644,9 +692,11 @@ namespace nsyshid::ToypadRemote
 
 		srv.Get("/api/figures", [](const httplib::Request&, httplib::Response& res) {
 			fs::path dir;
+			std::set<std::string> favs;
 			{
 				std::lock_guard lock(s_mutex);
 				dir = s_figuresDir;
+				favs = ReadFavorites();
 			}
 			std::string j = "[";
 			std::error_code ec;
@@ -656,14 +706,73 @@ namespace nsyshid::ToypadRemote
 					continue;
 				std::array<uint8, 0x2D * 0x04> data;
 				const bool ok = ReadFigure(entry.path(), data);
+				const std::string name = _pathToUtf8(entry.path().filename());
 				if (j.size() > 1)
 					j += ',';
-				j += fmt::format("{{\"file\":\"{}\",\"id\":{}}}", JsonEscape(_pathToUtf8(entry.path().filename())),
-								 ok ? static_cast<long long>(g_dimensionstoypad.IdentifyFigure(data)) : -1LL);
+				j += fmt::format("{{\"file\":\"{}\",\"id\":{},\"fav\":{}}}", JsonEscape(name),
+								 ok ? static_cast<long long>(g_dimensionstoypad.IdentifyFigure(data)) : -1LL,
+								 favs.contains(name) ? "true" : "false");
 			}
 			j += ']';
 			res.set_header("Cache-Control", "no-store");
 			res.set_content(j, "application/json");
+		});
+
+		// ?file=<name.bin>&on=0|1
+		srv.Post("/api/figures/fav", [](const httplib::Request& req, httplib::Response& res) {
+			const std::string file = req.get_param_value("file");
+			if (!FigurePath(file))
+				return Fail(res, 400, "invalid file name");
+			std::lock_guard lock(s_mutex);
+			auto favs = ReadFavorites();
+			if (req.get_param_value("on") == "1")
+				favs.insert(file);
+			else
+				favs.erase(file);
+			WriteFavorites(favs);
+			Ok(res);
+		});
+
+		// ?file=<name.bin>&to=<new name, without .bin>; the figure must not be on the pad
+		srv.Post("/api/figures/rename", [](const httplib::Request& req, httplib::Response& res) {
+			const std::string file = req.get_param_value("file");
+			const std::string to = SanitizeName(req.get_param_value("to")) + ".bin";
+			const auto from = FigurePath(file), dest = FigurePath(to);
+			if (!from || !dest || to == ".bin")
+				return Fail(res, 400, "invalid name");
+			std::lock_guard lock(s_mutex);
+			if (IsOnPad(file))
+				return Fail(res, 400, "tira a figura do pad primeiro");
+			std::error_code ec;
+			if (fs::exists(*dest, ec))
+				return Fail(res, 400, "ja existe uma figura com esse nome");
+			fs::rename(*from, *dest, ec);
+			if (ec)
+				return Fail(res, 500, "could not rename");
+			RenameReferences(file, to);
+			res.set_content(fmt::format("{{\"ok\":true,\"file\":\"{}\"}}", JsonEscape(to)), "application/json");
+		});
+
+		// moves the file to <figures>/_apagadas (recoverable) and forgets it in favourites/loadouts
+		srv.Post("/api/figures/delete", [](const httplib::Request& req, httplib::Response& res) {
+			const std::string file = req.get_param_value("file");
+			const auto from = FigurePath(file);
+			if (!from)
+				return Fail(res, 400, "invalid file name");
+			std::lock_guard lock(s_mutex);
+			if (IsOnPad(file))
+				return Fail(res, 400, "tira a figura do pad primeiro");
+			std::error_code ec;
+			const fs::path bin = s_figuresDir / "_apagadas";
+			fs::create_directories(bin, ec);
+			fs::path dest = bin / _utf8ToPath(file);
+			for (int n = 2; fs::exists(dest, ec); n++)
+				dest = bin / _utf8ToPath(fmt::format("{} ({}).bin", file.substr(0, file.size() - 4), n));
+			fs::rename(*from, dest, ec);
+			if (ec)
+				return Fail(res, 500, "could not delete");
+			RenameReferences(file, "");
+			Ok(res);
 		});
 
 		srv.Post("/api/place", [](const httplib::Request& req, httplib::Response& res) {
