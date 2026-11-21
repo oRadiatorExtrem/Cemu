@@ -79,6 +79,14 @@ namespace nsyshid
 		static std::map<const uint32, const char*> GetListTokens();
 		std::string FindFigure(uint32 figNum);
 
+		// ToypadRemote helpers
+		bool CreateVehicle(fs::path pathName, uint32 id);
+		uint32 IdentifyFigure(const std::array<uint8, 0x2D * 0x04>& buf) { return GetFigureId(buf); }
+		// figure id per slot (index 0-6), nullopt when the slot is empty
+		std::array<std::optional<uint32>, 7> GetSlots();
+		// swaps the figures in two occupied slots, as if both were picked up and put down on the other spot
+		bool SwapFigures(uint8 padA, uint8 indexA, uint8 padB, uint8 indexB);
+
 	  protected:
 		std::mutex m_dimensionsMutex;
 		std::array<DimensionsMini, 7> m_figures{};

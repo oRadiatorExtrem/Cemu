@@ -1,4 +1,5 @@
 #include "Dimensions.h"
+#include "ToypadRemote.h"
 
 #include "nsyshid.h"
 #include "Backend.h"
@@ -544,6 +545,8 @@ namespace nsyshid
 
 		std::array<uint8, 32> q_result{};
 
+		ToypadRemote::OnToypadCommand(buf);
+
 		switch (command)
 		{
 		case 0xB0: // Wake
@@ -745,6 +748,67 @@ namespace nsyshid
 			return false;
 		}
 		delete dimFile;
+		return true;
+	}
+
+	bool DimensionsUSB::CreateVehicle(fs::path pathName, uint32 id)
+	{
+		// Vehicles/gadgets: model id stored little endian in page 36, upgrades in pages 35/37,
+		// page 38 marks the tag as initialised (same layout as LD-ToyPad-Emulator by Berny23, MIT)
+		std::unique_ptr<FileStream> dimFile(FileStream::createFile2(pathName));
+		if (!dimFile)
+			return false;
+
+		std::array<uint8, 0x2D * 0x04> fileData{};
+		RandomUID(fileData);
+		const uint32 upgrades = 0xEFFFFFFF;
+		std::memcpy(&fileData[35 * 4], &upgrades, 4);
+		fileData[36 * 4] = id & 0xFF;
+		fileData[36 * 4 + 1] = (id >> 8) & 0xFF;
+		std::memcpy(&fileData[37 * 4], &upgrades, 4);
+		fileData[(38 * 4) + 1] = 1;
+
+		return dimFile->writeData(fileData.data(), fileData.size()) == fileData.size();
+	}
+
+	std::array<std::optional<uint32>, 7> DimensionsUSB::GetSlots()
+	{
+		std::lock_guard lock(m_dimensionsMutex);
+		std::array<std::optional<uint32>, 7> slots{};
+		for (size_t i = 0; i < m_figures.size(); i++)
+		{
+			if (m_figures[i].index != 255)
+				slots[i] = m_figures[i].id;
+		}
+		return slots;
+	}
+
+	bool DimensionsUSB::SwapFigures(uint8 padA, uint8 indexA, uint8 padB, uint8 indexB)
+	{
+		std::lock_guard lock(m_dimensionsMutex);
+		DimensionsMini& a = GetFigureByIndex(indexA);
+		DimensionsMini& b = GetFigureByIndex(indexB);
+		if (indexA == indexB || a.index == 255 || b.index == 255)
+			return false;
+
+		auto pushChange = [this](const DimensionsMini& fig, uint8 removed) {
+			std::array<uint8, 32> response = {0x56, 0x0b, fig.pad, 0x00, fig.index, removed,
+											  fig.data[0], fig.data[1], fig.data[2],
+											  fig.data[4], fig.data[5], fig.data[6], fig.data[7]};
+			response[13] = GenerateChecksum(response, 13);
+			m_figureAddedRemovedResponses.push(response);
+		};
+		pushChange(a, 0x01);
+		pushChange(b, 0x01);
+		std::swap(a.data, b.data);
+		std::swap(a.dimFile, b.dimFile);
+		std::swap(a.id, b.id);
+		a.pad = padA;
+		a.index = indexA + 1;
+		b.pad = padB;
+		b.index = indexB + 1;
+		pushChange(a, 0x00);
+		pushChange(b, 0x00);
 		return true;
 	}
 

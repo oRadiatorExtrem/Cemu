@@ -5,6 +5,7 @@
 #include "input/InputManager.h"
 #include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/CafeSystem.h"
+#include "Cafe/OS/libs/nsyshid/ToypadRemote.h"
 #include <wx/intl.h>
 
 enum ControllerVPADMapping2 : uint32
@@ -75,6 +76,10 @@ void VPADController::VPADRead(VPADStatus_t& status, const BtnRepeat& repeat)
 	}
 
 	m_homebutton_down |= is_home_down();
+
+	// Home + buttons are LEGO Dimensions Toy Pad shortcuts: hide those buttons from the game
+	if (nsyshid::ToypadRemote::OnGamepad(is_home_down(), status.hold))
+		status.hold = 0;
 
 	const auto axis = get_axis();
 	status.leftStick.x = axis.x;

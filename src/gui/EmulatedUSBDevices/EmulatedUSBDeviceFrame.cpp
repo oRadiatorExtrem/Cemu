@@ -9,6 +9,7 @@
 
 #include "Cafe/OS/libs/nsyshid/nsyshid.h"
 #include "Cafe/OS/libs/nsyshid/Dimensions.h"
+#include "Cafe/OS/libs/nsyshid/ToypadRemote.h"
 
 #include "Common/FileStream.h"
 
@@ -142,6 +143,8 @@ wxPanel* EmulatedUSBDeviceFrame::AddDimensionsPage(wxNotebook* notebook)
 		g_config.Save();
 	});
 	row->Add(m_emulateToypad, 1, wxEXPAND | wxALL, 2);
+	if (const std::string url = nsyshid::ToypadRemote::GetUrl(); !url.empty())
+		row->Add(new wxStaticText(box, wxID_ANY, wxString::FromUTF8("Phone remote: " + url)), 0, wxALIGN_CENTER_VERTICAL | wxALL, 2);
 	box_sizer->Add(row, 1, wxEXPAND | wxALL, 2);
 	auto* top_row = new wxBoxSizer(wxHORIZONTAL);
 	auto* bottom_row = new wxBoxSizer(wxHORIZONTAL);

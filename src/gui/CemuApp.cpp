@@ -7,6 +7,7 @@
 #include "gui/guiWrapper.h"
 #include "config/ActiveSettings.h"
 #include "config/LaunchSettings.h"
+#include "Cafe/OS/libs/nsyshid/ToypadRemote.h"
 #include "gui/GettingStartedDialog.h"
 #include "input/InputManager.h"
 #include "gui/helpers/wxHelpers.h"
@@ -305,6 +306,7 @@ bool CemuApp::OnInit()
 	UnitTests();
 #endif
 	CemuCommonInit();
+	nsyshid::ToypadRemote::Start();
 
 	wxInitAllImageHandlers();
 

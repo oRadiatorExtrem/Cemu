@@ -465,6 +465,8 @@ add_library(CemuCafe
   OS/libs/nsyshid/BackendLibusb.h
   OS/libs/nsyshid/Dimensions.cpp
   OS/libs/nsyshid/Dimensions.h
+  OS/libs/nsyshid/ToypadRemote.cpp
+  OS/libs/nsyshid/ToypadRemote.h
   OS/libs/nsyshid/Infinity.cpp
   OS/libs/nsyshid/Infinity.h
   OS/libs/nsyshid/Skylander.cpp
@@ -529,6 +531,7 @@ endif()
 set_property(TARGET CemuCafe PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 target_include_directories(CemuCafe PUBLIC "../")
+target_include_directories(CemuCafe PRIVATE "${CMAKE_SOURCE_DIR}/dependencies/cpp-httplib")
 
 if (glslang_VERSION VERSION_LESS "15.0.0")
 	set(glslang_target "glslang::SPIRV")
