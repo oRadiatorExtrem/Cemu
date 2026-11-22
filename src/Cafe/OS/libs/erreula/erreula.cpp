@@ -413,6 +413,10 @@ namespace erreula
 				ImGui::Spacing();
 				ImGui::SetCursorPosX(startx - 50);
 				hasLeftButtonPressed = ImGui::Button("OK", {100, 0});
+				// nothing to tell the player (no code, no text, e.g. LEGO Dimensions at boot): accept it right away
+				// instead of waiting for a mouse click on an empty box
+				if (errorCode == 0 && g_errEula.errEulaInstance->GetState() == ErrEulaState::Visible)
+					hasLeftButtonPressed = true;
 				break;
 			}
 			case ErrorDialogType::Text:
