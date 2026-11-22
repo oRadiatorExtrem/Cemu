@@ -390,6 +390,10 @@ namespace iosu
 			}
 			fsStatOut->permissions = 0x777; // format matches unix (fstat) permissions?
 			fsStatOut->flag = statFlag;
+			// real timestamps for host files (save data); other backends stay 0 as before
+			const uint64 mtime = fscFile->fscQueryModifiedTime();
+			fsStatOut->createdTime = mtime;
+			fsStatOut->modifiedTime = mtime;
 			return true;
 		}
 

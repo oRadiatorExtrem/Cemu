@@ -118,6 +118,12 @@ struct FSCVirtualFile
 		return 0;
 	}
 
+	// last write time as Wii U FSTime (microseconds since 2000-01-01), 0 when unknown
+	virtual uint64 fscQueryModifiedTime()
+	{
+		return 0;
+	}
+
 	virtual uint32 fscWriteData(void* buffer, uint32 size)
 	{
 		cemu_assert_unimplemented();

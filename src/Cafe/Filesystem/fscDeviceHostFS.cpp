@@ -55,6 +55,21 @@ uint64 FSCVirtualFile_Host::fscQueryValueU64(uint32 id)
 	return 0;
 }
 
+uint64 FSCVirtualFile_Host::fscQueryModifiedTime()
+{
+	// games show this in save menus (e.g. LEGO Dimensions' "Load Game" slots); leaving it 0 showed garbage dates
+	if (!m_path)
+		return 0;
+	std::error_code ec;
+	const auto ftime = fs::last_write_time(*m_path, ec);
+	if (ec)
+		return 0;
+	const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(ftime);
+	const sint64 unixUs = std::chrono::duration_cast<std::chrono::microseconds>(sys.time_since_epoch()).count();
+	constexpr sint64 UNIX_TO_2000_US = 946684800LL * 1000000LL; // Wii U time starts at 2000-01-01
+	return unixUs > UNIX_TO_2000_US ? (uint64)(unixUs - UNIX_TO_2000_US) : 0;
+}
+
 uint32 FSCVirtualFile_Host::fscWriteData(void* buffer, uint32 size)
 {
 	if (m_type != FSC_TYPE_FILE)
@@ -194,6 +209,7 @@ FSCVirtualFile* FSCVirtualFile_Host::OpenFile(const fs::path& path, FSC_ACCESS_F
 			vf->m_fs = fs;
 			vf->m_isWritable = writeAccessRequested;
 			vf->m_fileSize = fs->GetSize();
+			vf->m_path.reset(new std::filesystem::path(path));
 			fscStatus = FSC_STATUS_OK;
 			return vf;
 		}

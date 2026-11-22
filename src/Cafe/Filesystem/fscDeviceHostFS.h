@@ -11,6 +11,7 @@ public:
 	uint32 fscDeviceHostFSFile_getFileSize();
 
 	uint64 fscQueryValueU64(uint32 id) override;
+	uint64 fscQueryModifiedTime() override;
 	uint32 fscWriteData(void* buffer, uint32 size) override;
 	uint32 fscReadData(void* buffer, uint32 size) override;
 	void fscSetSeek(uint64 seek) override;
