@@ -116,7 +116,7 @@ button.danger{color:var(--bad)}
 <div id="sheet">
   <div class="grab"></div>
   <div class="tabs"><button id="tMine" class="on">As minhas</button><button id="tNew">Criar nova</button></div>
-  <input id="q" type="search" placeholder="Procurar…" autocomplete="off">
+  <input id="q" type="search" placeholder="Procurar nome, mundo ou habilidade (ex: laser)…" autocomplete="off">
   <div id="list"></div>
 </div>
 <div id="menu">
@@ -133,8 +133,8 @@ button.danger{color:var(--bad)}
 const $ = (s) => document.querySelector(s);
 const C = window.CATALOG || { worlds: [], chars: [], vehicles: [] };
 const byId = new Map();
-for (const [id, name, w] of C.chars) byId.set(id, { id, name, world: C.worlds[w], veh: false });
-for (const [id, name, w] of C.vehicles) byId.set(id, { id, name, world: C.worlds[w], veh: true });
+for (const [id, name, w, ab] of C.chars) byId.set(id, { id, name, world: C.worlds[w], ab: ab || "", veh: false });
+for (const [id, name, w, ab] of C.vehicles) byId.set(id, { id, name, world: C.worlds[w], ab: ab || "", veh: true });
 
 let state = null, figures = [], target = null, moving = null, tab = "mine", worldFilter = null;
 
@@ -185,6 +185,8 @@ function renderLeds(leds) {
     z.classList.remove("flash", "rand"); void z.offsetWidth; // restart animation
     z.style.transitionDuration = l.m === "f" ? Math.min(3, Math.max(0.05, l.p[0] * 0.03)) + "s" : "";
     if (l.m === "F") {
+      // the game flashes a zone when it wants a figure there: buzz the phone so you look
+      navigator.vibrate?.([80, 60, 80]);
       z.style.setProperty("--d", Math.max(0.1, (l.p[0] + l.p[1]) * 0.02) + "s");
       z.style.setProperty("--n", l.p[2] >= 255 ? "infinite" : Math.max(1, l.p[2]));
       z.classList.add("flash");
@@ -339,7 +341,7 @@ function renderList() {
       }
     }
     const rows = figures
-      .filter((f) => match(label(f), world(f), f.file))
+      .filter((f) => match(label(f), world(f), f.file, byId.get(f.id)?.ab))
       .filter((f) => !worldFilter || (worldFilter === "★ Favoritas" ? f.fav : world(f) === worldFilter))
       .sort((a, b) => b.fav - a.fav || label(a).localeCompare(label(b)));
     if (!rows.length) add(figures.length ? "Nada encontrado" : "Ainda não tens figuras.<br>Cria-as em <b>Criar nova</b>.", "empty-msg");
@@ -365,7 +367,7 @@ function renderList() {
     }
   } else {
     const section = (title, rows) => {
-      rows = rows.filter(([, n, w]) => match(n, C.worlds[w]));
+      rows = rows.filter(([, n, w, ab]) => match(n, C.worlds[w], ab));
       if (!rows.length) return;
       add(title, "sec");
       for (const [id, name, w] of rows)
