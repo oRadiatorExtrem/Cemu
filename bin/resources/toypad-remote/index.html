@@ -70,6 +70,9 @@ button.danger{color:var(--bad)}
 .item:active{background:var(--card2)}
 .item small{color:var(--dim);font-size:12px;text-align:right}
 .item.used{opacity:.45}
+.slot{flex-direction:column}
+.slot .thumb{max-height:46%;max-width:90%;object-fit:contain;pointer-events:none}
+.item .li{width:36px;height:36px;object-fit:contain;flex:none}
 .item .nm{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
 .item .nm small{text-align:left}
 .item .ic{background:none;padding:8px 7px;font-size:17px;color:var(--dim)}
@@ -128,6 +131,7 @@ button.danger{color:var(--bad)}
 <div id="toast"></div>
 
 <script src="catalog.js"></script>
+<script src="images.js" onerror="window.IMAGES={}"></script>
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
@@ -206,7 +210,10 @@ function render() {
     el.classList.add(s ? "full" : "empty");
     if (moving !== null && +el.dataset.slot === moving) el.classList.add("sel");
     if (s && state.sel === +el.dataset.slot) el.classList.add("pick");
-    el.textContent = s ? slotLabel(s) : "+";
+    const img = s && (window.IMAGES || {})[s.id];
+    el.textContent = "";
+    if (img) { const i = document.createElement("img"); i.src = img; i.className = "thumb"; i.alt = ""; el.append(i, document.createElement("br")); }
+    el.append(s ? slotLabel(s) : "+");
   });
   renderLeds(state.leds);
   const st = $("#status");
@@ -347,7 +354,8 @@ function renderList() {
     if (!rows.length) add(figures.length ? "Nada encontrado" : "Ainda não tens figuras.<br>Cria-as em <b>Criar nova</b>.", "empty-msg");
     for (const f of rows) {
       const used = onPad.has(f.file);
-      const d = add(`<span class="nm">${esc(label(f))}<small>${used ? "no pad · tocar para mover" : esc(world(f))}</small></span>
+      const pic = (window.IMAGES || {})[f.id];
+      const d = add(`${pic ? `<img class="li" src="${pic}" alt="">` : `<span class="li"></span>`}<span class="nm">${esc(label(f))}<small>${used ? "no pad · tocar para mover" : esc(world(f))}</small></span>
         <button class="ic${f.fav ? " star" : ""}" title="Favorita">${f.fav ? "★" : "☆"}</button>
         <button class="ic" title="Mudar o nome">✎</button><button class="ic" title="Apagar">🗑</button>`,
         "item" + (used ? " used" : ""),
