@@ -921,7 +921,13 @@ namespace nsyshid::ToypadRemote
 				name = fmt::format("{} ({}).bin", base, n);
 			const fs::path path = s_figuresDir / _utf8ToPath(name);
 
-			const bool created = id >= 1000 ? g_dimensionstoypad.CreateVehicle(path, id) : g_dimensionstoypad.CreateFigure(path, id);
+			// a ready-made template (templates/<id>.bin) wins over the generated blank figure
+			const fs::path tpl = ActiveSettings::GetDataPath(fmt::format("resources/toypad-remote/templates/{}.bin", id));
+			bool created;
+			if (fs::exists(tpl, ec))
+				created = fs::copy_file(tpl, path, ec);
+			else
+				created = id >= 1000 ? g_dimensionstoypad.CreateVehicle(path, id) : g_dimensionstoypad.CreateFigure(path, id);
 			if (!created)
 				return Fail(res, 500, "could not create the figure file");
 

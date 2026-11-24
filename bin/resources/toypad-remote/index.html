@@ -80,6 +80,7 @@ button.danger{color:var(--bad)}
 .chips{display:flex;gap:6px;overflow-x:auto;padding:4px 4px 8px;scrollbar-width:none}
 .chips button{flex:none;font-size:12px;padding:7px 11px;border-radius:99px}
 .chips button.on{background:var(--acc);color:#111;font-weight:700}
+.sub{color:var(--dim);font-size:12px;font-weight:600;padding:8px 8px 2px}
 .sec{color:var(--acc);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:12px 8px 4px}
 .empty-msg{color:var(--dim);text-align:center;padding:30px 10px}
 #menu h3{margin:2px 4px 10px;font-size:16px}
@@ -130,8 +131,8 @@ button.danger{color:var(--bad)}
 </div>
 <div id="toast"></div>
 
-<script src="catalog.js"></script>
-<script src="images.js" onerror="window.IMAGES={}"></script>
+<script src="catalog.js?v=1795546011062"></script>
+<script src="images.js?v=1795546011062" onerror="window.IMAGES={}"></script>
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
@@ -375,14 +376,21 @@ function renderList() {
     }
   } else {
     const section = (title, rows) => {
-      rows = rows.filter(([, n, w, ab]) => match(n, C.worlds[w], ab));
+      rows = rows.filter(([, n, w, ab, owner]) => match(n, C.worlds[w], ab, owner));
       if (!rows.length) return;
       add(title, "sec");
-      for (const [id, name, w] of rows)
-        add(`<span>${esc(name)}</span><small>${esc(C.worlds[w])}</small>`, "item", () => {
+      let lastOwner = null;
+      const grouped = rows.some((r) => r[4]); // vehicles with an owner: group by owner, builds 1/2/3 together
+      if (grouped)
+        rows = [...rows].sort((a, b) => (a[4] || "~").localeCompare(b[4] || "~") || (a[5] || 0) - (b[5] || 0) || a[1].localeCompare(b[1]));
+      for (const [id, name, w, , owner, build] of rows) {
+        if (grouped && (owner || "") !== lastOwner) add(esc(owner || "Outros"), "sub");
+        lastOwner = owner || "";
+        add(`<span>${build ? build + ". " : ""}${esc(name)}</span><small>${esc(C.worlds[w])}</small>`, "item", () => {
           closeAll();
           act(api("/api/create", { id, name, slot: target }).then((r) => toast("Criada: " + r.file)));
         });
+      }
     };
     section("Personagens", C.chars);
     section("Veículos e gadgets", C.vehicles);
