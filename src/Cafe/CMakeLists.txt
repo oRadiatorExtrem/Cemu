@@ -467,6 +467,10 @@ add_library(CemuCafe
   OS/libs/nsyshid/Dimensions.h
   OS/libs/nsyshid/ToypadRemote.cpp
   OS/libs/nsyshid/ToypadRemote.h
+  # nucleo partilhado do Toy Pad Remote (copiado para <cemu>/third_party por sync.py)
+  ${CMAKE_SOURCE_DIR}/third_party/toypad-remote-core/ToypadRemoteCore.cpp
+  ${CMAKE_SOURCE_DIR}/third_party/toypad-remote-core/ToypadRemoteCore.h
+  ${CMAKE_SOURCE_DIR}/third_party/toypad-remote-core/ToypadHost.h
   OS/libs/nsyshid/Infinity.cpp
   OS/libs/nsyshid/Infinity.h
   OS/libs/nsyshid/Skylander.cpp
@@ -532,6 +536,8 @@ set_property(TARGET CemuCafe PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CON
 
 target_include_directories(CemuCafe PUBLIC "../")
 target_include_directories(CemuCafe PRIVATE "${CMAKE_SOURCE_DIR}/dependencies/cpp-httplib")
+# nucleo partilhado do Toy Pad Remote: inclui o site embutido (web_assets.h) e o httplib do nucleo
+target_include_directories(CemuCafe PRIVATE "${CMAKE_SOURCE_DIR}/third_party/toypad-remote-core")
 
 if (glslang_VERSION VERSION_LESS "15.0.0")
 	set(glslang_target "glslang::SPIRV")
