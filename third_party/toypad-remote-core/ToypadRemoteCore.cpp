@@ -27,7 +27,9 @@
 #include <thread>
 #include <vector>
 
-#include "web_assets.h" // gerado por web_embed.py (site embutido no executavel)
+#include "web_assets.h"    // gerado por web_embed.py (site embutido no executavel)
+#include "catalog_data.h"  // gerado por gen_catalog.py (id -> nome, mundo)
+#include "vehicle_upgrades.h" // gerado por gen_vehicle_upgrades.py (melhorias de fabrica)
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -46,6 +48,11 @@ namespace {
 // (animacao de zonas); sem isto cada cliente recebia dezenas de JSON por segundo.
 constexpr auto kSseMinInterval = std::chrono::milliseconds(50);
 constexpr auto kSseKeepAlive = std::chrono::seconds(10);
+// Cada stream SSE segura uma thread do servidor. O tecto e' menor do que o pool de proposito:
+// sobra sempre thread para os pedidos normais (place/remove/state). Sem isto, varias abas
+// esquecidas no /api/events deixavam o telemovel "a rodar" ao colocar uma figura.
+constexpr int kMaxSseClients = 6;
+constexpr int kServerThreads = 12;
 constexpr auto kPickupDelay = std::chrono::milliseconds(500);
 constexpr const char* kHeaderToken = "X-TPR";
 constexpr const char* kHeaderPin = "X-TPR-Pin";
@@ -137,6 +144,11 @@ std::string HostOfHeader(const std::string& host_header) {
     }
     const size_t colon = host_header.find(':');
     return colon == std::string::npos ? host_header : host_header.substr(0, colon);
+}
+
+bool AcceptsGzip(const httplib::Request& req) {
+    const std::string encodings = req.get_header_value("Accept-Encoding");
+    return encodings.find("gzip") != std::string::npos;
 }
 
 bool IsLoopbackName(const std::string& host) {
@@ -534,10 +546,13 @@ struct Core::Impl {
             return s.file.substr(0, s.file.size() - 4); // tira o ".bin"
         }
         if (host) {
-            const std::string name = host->CatalogName(s.id);
-            if (!name.empty()) {
-                return name;
+            const std::string hosted = host->CatalogName(s.id);
+            if (!hosted.empty()) {
+                return hosted;
             }
+        }
+        if (const char* shared = ::toypad_remote::CatalogName(s.id); shared && *shared) {
+            return shared;
         }
         char buf[16];
         std::snprintf(buf, sizeof(buf), "0x%08X", s.id);
@@ -715,6 +730,21 @@ struct Core::Impl {
         if (path == "/") {
             path = "/index.html";
         }
+        // 0) dados do utilizador: /img/<id>.png e /templates/<id>.bin (nao sao distribuidos)
+        if (!config.data_dir.empty() && (path.rfind("/img/", 0) == 0 || path.rfind("/templates/", 0) == 0)) {
+            std::error_code ec_data;
+            const fs::path data_file = fs::path(config.data_dir) / fs::path(path.substr(1));
+            if (fs::is_regular_file(data_file, ec_data)) {
+                std::ifstream in(data_file, std::ios::binary);
+                if (in) {
+                    std::ostringstream ss;
+                    ss << in.rdbuf();
+                    res.set_content(ss.str(), MimeFor(path));
+                    res.set_header("Cache-Control", "max-age=86400");
+                    return true;
+                }
+            }
+        }
         // 1) pasta em disco (desenvolvimento) ganha ao embutido
         if (!config.web_dir.empty()) {
             std::error_code ec;
@@ -731,14 +761,21 @@ struct Core::Impl {
                 }
             }
         }
-        // 2) embutido
+        // 2) embutido (com a variante gzip, quando existe e o cliente a aceita)
         for (unsigned int i = 0; i < embedded::kAssetCount; ++i) {
-            if (path == embedded::kAssets[i].path) {
-                res.set_content(reinterpret_cast<const char*>(embedded::kAssets[i].data), embedded::kAssets[i].size,
-                                embedded::kAssets[i].mime);
-                res.set_header("Cache-Control", EndsWith(path, ".html") ? "no-cache" : "max-age=86400");
-                return true;
+            const embedded::Asset& asset = embedded::kAssets[i];
+            if (path != asset.path) {
+                continue;
             }
+            res.set_header("Vary", "Accept-Encoding");
+            if (asset.gz && AcceptsGzip(req)) {
+                res.set_content(reinterpret_cast<const char*>(asset.gz), asset.gz_size, asset.mime);
+                res.set_header("Content-Encoding", "gzip");
+            } else {
+                res.set_content(reinterpret_cast<const char*>(asset.data), asset.size, asset.mime);
+            }
+            res.set_header("Cache-Control", EndsWith(path, ".html") ? "no-cache" : "max-age=86400");
+            return true;
         }
         return false;
     }
@@ -790,6 +827,36 @@ void Core::Impl::RegisterRoutes(httplib::Server& srv) {
         return httplib::Server::HandlerResponse::Unhandled;
     });
 
+    // images.js gerado a partir dos icones que o utilizador tem em <data_dir>/img/<id>.png.
+    // Assim os icones sao exactamente os mesmos do Cemu (o ficheiro e o mesmo); sem a pasta, o
+    // web app cai no marcador que ja tem, e nada se parte.
+    srv.Get("/images.js", [this](const httplib::Request&, httplib::Response& res) {
+        std::string js = "window.IMAGES={";
+        bool first = true;
+        if (!config.data_dir.empty()) {
+            std::error_code ec;
+            const fs::path dir = fs::path(config.data_dir) / "img";
+            for (const auto& entry : fs::directory_iterator(dir, ec)) {
+                if (!entry.is_regular_file(ec) || entry.path().extension() != ".png") {
+                    continue;
+                }
+                const std::string stem = NarrowPath(entry.path().stem());
+                bool numeric = !stem.empty() && std::all_of(stem.begin(), stem.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
+                if (!numeric) {
+                    continue;
+                }
+                if (!first) {
+                    js += ',';
+                }
+                first = false;
+                js += "\"" + stem + "\":\"img/" + NarrowPath(entry.path().filename()) + "\"";
+            }
+        }
+        js += "};";
+        res.set_header("Cache-Control", "no-cache");
+        res.set_content(js, "text/javascript");
+    });
+
     srv.Get("/api/state", [this](const httplib::Request&, httplib::Response& res) {
         res.set_header("Cache-Control", "no-store");
         res.set_content(StateJson(), "application/json");
@@ -798,6 +865,16 @@ void Core::Impl::RegisterRoutes(httplib::Server& srv) {
     srv.Get("/api/events", [this](const httplib::Request&, httplib::Response& res) {
         res.set_header("Cache-Control", "no-store");
         res.set_header("X-Accel-Buffering", "no");
+        // Tecto de clientes SSE: cada um segura uma thread. Um telemovel que fica pendurado (ecra
+        // bloqueado, rede a cair) nao pode acumular ligacoes ate o servidor deixar de responder.
+        static std::atomic<int> sse_clients{0};
+        if (sse_clients.fetch_add(1) >= kMaxSseClients) {
+            sse_clients.fetch_sub(1);
+            res.status = 503;
+            res.set_content("{\"error\":\"too many event streams\"}", "application/json");
+            return;
+        }
+        auto guard = std::shared_ptr<void>(nullptr, [](void*) { sse_clients.fetch_sub(1); });
         struct Client {
             uint64_t last_sent = 0;
             std::chrono::steady_clock::time_point next_allowed{};
@@ -805,7 +882,8 @@ void Core::Impl::RegisterRoutes(httplib::Server& srv) {
         auto client = std::make_shared<Client>();
         res.set_chunked_content_provider(
             "text/event-stream",
-            [this, client](size_t, httplib::DataSink& sink) {
+            [this, client, guard](size_t, httplib::DataSink& sink) {
+                (void)guard; // larga o contador quando a ligacao acabar
                 if (!sink.is_writable()) {
                     return false;
                 }
@@ -1123,6 +1201,9 @@ bool Core::Impl::Start(ToypadHost* h, const Config& cfg, std::string& err) {
     boot_id = boot;
 
     server = std::make_unique<httplib::Server>();
+    // Pool proprio e fixo: o padrao do httplib e' hardware_concurrency-1, que num portatil de 8
+    // threads deixa poucas para SSE + pedidos ao mesmo tempo.
+    server->new_task_queue = [] { return new httplib::ThreadPool(kServerThreads); };
     RegisterRoutes(*server);
 
     int port = config.port;
@@ -1207,6 +1288,57 @@ int Core::Port() const { return m_impl->bound_port; }
 void Core::OnGameCommand(const Packet& command) { m_impl->OnGameCommand(command); }
 
 void Core::NotifyPortalChanged() { m_impl->NotifyPortalChanged(); }
+
+int Core::LoadoutCount() {
+    return static_cast<int>(m_impl->ReadLoadouts().size());
+}
+
+std::string Core::LoadoutName(int index) {
+    const auto list = m_impl->ReadLoadouts();
+    if (index < 0 || index >= static_cast<int>(list.size())) {
+        return {};
+    }
+    return list[static_cast<size_t>(index)].name;
+}
+
+bool Core::ApplyLoadout(int index, std::string* err) {
+    const auto list = m_impl->ReadLoadouts();
+    if (index < 0 || index >= static_cast<int>(list.size())) {
+        if (err) {
+            *err = "loadout desconhecido";
+        }
+        return false;
+    }
+    const std::string reason = m_impl->ApplyLoadout(list[static_cast<size_t>(index)]);
+    if (!reason.empty()) {
+        if (err) {
+            *err = reason;
+        }
+        return false;
+    }
+    return true;
+}
+
+int Core::BlinkingZone() {
+    // O jogo pisca (modo 'F') ou faz fade (modo 'f') na zona onde quer uma figura. O piscar manda;
+    // o fade e' a segunda escolha, porque o jogo usa fade tambem para "zona pronta".
+    std::array<LedState, kPadCount> leds;
+    {
+        std::lock_guard lock(m_impl->mutex);
+        leds = m_impl->leds;
+    }
+    for (int zone = 0; zone < kPadCount; ++zone) {
+        if (leds[static_cast<size_t>(zone)].mode == 'F') {
+            return zone + 1;
+        }
+    }
+    for (int zone = 0; zone < kPadCount; ++zone) {
+        if (leds[static_cast<size_t>(zone)].mode == 'f') {
+            return zone + 1;
+        }
+    }
+    return 0;
+}
 
 void Core::SetSelected(int slot) {
     std::lock_guard lock(m_impl->mutex);

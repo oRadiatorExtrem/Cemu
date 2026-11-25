@@ -41,6 +41,9 @@ struct Config {
     int port = 8090;             // 0 = porta escolhida pelo sistema
     std::string pin;             // vazio = sem PIN (so para quem expoe fora da rede de casa)
     std::string web_dir;         // opcional: pasta em disco que ganha ao site embutido (desenvolvimento)
+    // Pasta de dados opcional do utilizador: `img/<id>.png` (icones) e `templates/<id>.bin`.
+    // Nada disto e' distribuido com o projeto; se faltar, o web app mostra um marcador com o id.
+    std::string data_dir;
     std::string bind_address = "0.0.0.0";
     bool announce_in_log = true; // escreve o URL no log do anfitriao ao arrancar
 };
@@ -70,6 +73,17 @@ class Core {
 
     // Posicao selecionada pelos atalhos no comando (-1 = nenhuma).
     void SetSelected(int slot);
+
+    // ---------------------------------------------------------------- atalhos no comando
+    // Quantos loadouts existem (para os atalhos A/B/X/Y poderem mostrar o nome).
+    int LoadoutCount();
+    // Aplica o loadout `index` (ordem do loadouts.txt). Devolve false e o motivo em `err`.
+    bool ApplyLoadout(int index, std::string* err);
+    // Nome do loadout `index` ("" se nao existir).
+    std::string LoadoutName(int index);
+    // Zona (1 centro, 2 esquerda, 3 direita) que o jogo esta a piscar agora (0 = nenhuma). O jogo
+    // pisca uma zona quando quer uma figura la: e o alvo natural do atalho "mover para onde pisca".
+    int BlinkingZone();
 
   private:
     Core();
